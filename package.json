@@ -1,0 +1,19 @@
+{
+  "name": "ffxiv-server-status-bot",
+  "version": "1.0.0",
+  "description": "Discord bot that monitors FFXIV Behemoth server availability for character creation",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "cheerio": "^1.0.0-rc.12",
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1"
+  },
+  "keywords": ["discord", "bot", "ffxiv", "server-status"],
+  "author": "",
+  "license": "MIT"
+}
