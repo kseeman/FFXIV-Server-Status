@@ -10,6 +10,8 @@ class FFXIVServerMonitor {
         });
         
         this.channelId = process.env.CHANNEL_ID;
+        this.pingRoleId = process.env.PING_ROLE_ID; // Optional role to ping
+        this.devMode = process.env.DEV_MODE === 'true'; // Feature toggle for dev notifications
         this.checkInterval = (process.env.CHECK_INTERVAL || 5) * 60 * 1000; // Convert minutes to milliseconds
         this.lastStatus = null;
         this.channel = null;
@@ -64,12 +66,22 @@ class FFXIVServerMonitor {
             this.lastCheckTime = new Date();
             
             if (status && status !== this.lastStatus) {
-                // Only send message if server becomes available (Standard or Preferred)
                 const isNowAvailable = status === 'Standard' || status === 'Preferred' || status === 'Preferred+';
                 const wasAvailable = this.lastStatus === 'Standard' || this.lastStatus === 'Preferred' || this.lastStatus === 'Preferred+';
                 
-                if (isNowAvailable && !wasAvailable) {
-                    await this.sendStatusUpdate(status);
+                // Send notification based on mode
+                let shouldNotify = false;
+                if (this.devMode) {
+                    // Dev mode: notify on any status change
+                    shouldNotify = true;
+                    console.log(`[DEV MODE] Status changed: ${this.lastStatus || 'Unknown'} → ${status}`);
+                } else {
+                    // Production mode: only notify when server becomes available
+                    shouldNotify = isNowAvailable && !wasAvailable;
+                }
+                
+                if (shouldNotify) {
+                    await this.sendStatusUpdate(status, isNowAvailable);
                 }
                 
                 this.lastStatus = status;
@@ -129,16 +141,17 @@ class FFXIVServerMonitor {
     async sendStartupMessage() {
         if (!this.channel) return;
 
+        const notificationMode = this.devMode ? 'All status changes (DEV MODE)' : 'Only when server becomes available';
         const embed = new EmbedBuilder()
-            .setTitle('🤖 FFXIV Server Monitor Started')
+            .setTitle(`🤖 FFXIV Server Monitor Started ${this.devMode ? '(DEV MODE)' : ''}`)
             .setDescription('Bot is now monitoring Behemoth server status')
-            .setColor(0x0099ff)
+            .setColor(this.devMode ? 0xff9900 : 0x0099ff) // Orange for dev mode
             .setTimestamp()
             .setFooter({ text: 'FFXIV Server Monitor' })
             .addFields([
                 { 
                     name: '📋 Configuration', 
-                    value: `Check interval: ${this.checkInterval / (60 * 1000)} minutes\nNotifications: Only when server becomes available`, 
+                    value: `Check interval: ${this.checkInterval / (60 * 1000)} minutes\nNotifications: ${notificationMode}`, 
                     inline: false 
                 },
                 {
@@ -150,33 +163,64 @@ class FFXIVServerMonitor {
 
         try {
             await this.channel.send({ embeds: [embed] });
-            console.log('Startup message sent successfully');
+            console.log(`Startup message sent successfully ${this.devMode ? '(DEV MODE)' : ''}`);
         } catch (error) {
             console.error('Error sending startup message:', error);
             throw error; // Re-throw to handle in initializeMonitoring
         }
     }
 
-    async sendStatusUpdate(status) {
+    async sendStatusUpdate(status, isAvailable) {
         if (!this.channel) return;
 
+        const color = isAvailable ? 0x00ff00 : 0xff0000; // Green if available, red if not
+        const title = isAvailable 
+            ? '✅ Behemoth Server - Character Creation Available!' 
+            : '❌ Behemoth Server - Character Creation Unavailable';
+        
         const embed = new EmbedBuilder()
-            .setTitle('✅ Behemoth Server - Character Creation Available!')
+            .setTitle(title)
             .setDescription(`Server Status: **${status}**`)
-            .setColor(0x00ff00)
+            .setColor(color)
             .setTimestamp()
-            .setFooter({ text: 'FFXIV Server Monitor' })
-            .addFields([
+            .setFooter({ text: `FFXIV Server Monitor${this.devMode ? ' (DEV MODE)' : ''}` });
+
+        if (isAvailable) {
+            embed.addFields([
                 { 
                     name: '🎉 Good News!', 
                     value: 'You can now create new characters on Behemoth server!', 
                     inline: false 
                 }
             ]);
+        } else {
+            embed.addFields([
+                { 
+                    name: 'Status Update', 
+                    value: 'Character creation is currently unavailable. The bot will notify when it becomes available.', 
+                    inline: false 
+                }
+            ]);
+        }
+
+        // Prepare message content with optional role ping
+        let messageContent = '';
+        if (this.pingRoleId) {
+            // In dev mode, ping for all notifications; in production, only for availability
+            if (this.devMode || isAvailable) {
+                messageContent = `<@&${this.pingRoleId}>`;
+            }
+        }
 
         try {
-            await this.channel.send({ embeds: [embed] });
-            console.log(`Availability notification sent: ${status}`);
+            await this.channel.send({ 
+                content: messageContent,
+                embeds: [embed] 
+            });
+            const shouldPing = this.pingRoleId && (this.devMode || isAvailable);
+            const pingText = shouldPing ? ' (with role ping)' : '';
+            const modeText = this.devMode ? ' [DEV MODE]' : '';
+            console.log(`Status notification sent: ${status}${pingText}${modeText}`);
         } catch (error) {
             console.error('Error sending message:', error);
         }

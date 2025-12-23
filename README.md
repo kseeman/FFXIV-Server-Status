@@ -8,6 +8,7 @@ A Discord bot that monitors the FFXIV Behemoth server status and notifies when c
 - 📱 Sends Discord notifications **only when** character creation becomes available
 - ✅ Alerts when character creation becomes available (Standard/Preferred status)
 - 🤖 Health check slash command (`/healthcheck`) to verify bot status
+- 🔔 Optional role ping when server becomes available
 - ⏰ Configurable check interval (default: 5 minutes)
 - 🔇 Silent monitoring - no spam when server stays unavailable
 
@@ -38,6 +39,8 @@ cp .env.example .env
 DISCORD_TOKEN=your_discord_bot_token_here
 CLIENT_ID=your_application_client_id_here
 CHANNEL_ID=your_channel_id_here
+PING_ROLE_ID=your_role_id_here
+DEV_MODE=false
 CHECK_INTERVAL=5
 ```
 
@@ -49,6 +52,17 @@ To get the Channel ID:
 To get the Client ID:
 - In the Discord Developer Portal, go to your application
 - Copy the "Application ID" from the General Information page
+
+To get the Role ID (optional):
+- Create a role for users who want to be notified (e.g., "FFXIV Notifications")
+- Enable Developer Mode in Discord
+- Right-click on the role in Server Settings > Roles
+- Select "Copy Role ID"
+- Leave this empty in .env if you don't want role pings
+
+**DEV_MODE** (optional):
+- Set to `true` for development to receive all status change notifications
+- Set to `false` (or omit) for production - only notifies when server becomes available
 
 ### 4. Run the Bot
 
@@ -68,9 +82,11 @@ The bot:
 1. Fetches the FFXIV Lodestone world status page every 5 minutes (configurable)
 2. Parses the HTML to find Behemoth's current status
 3. Compares with the previous status
-4. **Only sends notifications when the server becomes available** (Standard/Preferred)
-5. Registers a `/healthcheck` slash command to verify bot status
-6. Uses green embeds for availability notifications
+4. **Production mode**: Only sends notifications when server becomes available (Standard/Preferred)
+5. **Dev mode**: Sends notifications for all status changes (useful for testing)
+6. Optionally pings a configurable role when server becomes available
+7. Registers a `/healthcheck` slash command to verify bot status
+8. Uses colored embeds (green for available, red for unavailable)
 
 ## Server Status Types
 
@@ -85,6 +101,7 @@ The bot:
 ## Troubleshooting
 
 - Make sure your bot has "Send Messages" and "Use Slash Commands" permissions
+- If using role pings, ensure the bot can mention the role (role must be lower than bot's highest role)
 - Check that your Discord token, client ID, and channel ID are correct
 - The bot requires internet access to fetch the Lodestone page
 - Use `/healthcheck` to verify the bot is running and monitoring properly
