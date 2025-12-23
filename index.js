@@ -41,6 +41,9 @@ class FFXIVServerMonitor {
             this.channel = await this.client.channels.fetch(this.channelId);
             console.log(`Connected to channel: ${this.channel.name}`);
             
+            // Send startup confirmation message
+            await this.sendStartupMessage();
+            
             // Send initial status check
             await this.checkServerStatus();
             
@@ -120,6 +123,37 @@ class FFXIVServerMonitor {
         } catch (error) {
             console.error('Error fetching server status:', error);
             throw error;
+        }
+    }
+
+    async sendStartupMessage() {
+        if (!this.channel) return;
+
+        const embed = new EmbedBuilder()
+            .setTitle('🤖 FFXIV Server Monitor Started')
+            .setDescription('Bot is now monitoring Behemoth server status')
+            .setColor(0x0099ff)
+            .setTimestamp()
+            .setFooter({ text: 'FFXIV Server Monitor' })
+            .addFields([
+                { 
+                    name: '📋 Configuration', 
+                    value: `Check interval: ${this.checkInterval / (60 * 1000)} minutes\nNotifications: Only when server becomes available`, 
+                    inline: false 
+                },
+                {
+                    name: '🔧 Commands',
+                    value: 'Use `/healthcheck` to verify bot status anytime',
+                    inline: false
+                }
+            ]);
+
+        try {
+            await this.channel.send({ embeds: [embed] });
+            console.log('Startup message sent successfully');
+        } catch (error) {
+            console.error('Error sending startup message:', error);
+            throw error; // Re-throw to handle in initializeMonitoring
         }
     }
 
