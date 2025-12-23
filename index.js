@@ -65,23 +65,28 @@ class FFXIVServerMonitor {
             const status = await this.fetchServerStatus();
             this.lastCheckTime = new Date();
             
-            if (status && status !== this.lastStatus) {
+            if (status) {
                 const isNowAvailable = status === 'Standard' || status === 'Preferred' || status === 'Preferred+';
                 const wasAvailable = this.lastStatus === 'Standard' || this.lastStatus === 'Preferred' || this.lastStatus === 'Preferred+';
+                const hasStatusChanged = status !== this.lastStatus;
                 
                 // Send notification based on mode
                 let shouldNotify = false;
                 if (this.devMode) {
-                    // Dev mode: notify on any status change
+                    // Dev mode: notify every check regardless of status change
                     shouldNotify = true;
-                    console.log(`[DEV MODE] Status changed: ${this.lastStatus || 'Unknown'} → ${status}`);
+                    if (hasStatusChanged) {
+                        console.log(`[DEV MODE] Status changed: ${this.lastStatus || 'Unknown'} → ${status}`);
+                    } else {
+                        console.log(`[DEV MODE] Status unchanged: ${status} (periodic notification)`);
+                    }
                 } else {
                     // Production mode: only notify when server becomes available
-                    shouldNotify = isNowAvailable && !wasAvailable;
+                    shouldNotify = isNowAvailable && !wasAvailable && hasStatusChanged;
                 }
                 
                 if (shouldNotify) {
-                    await this.sendStatusUpdate(status, isNowAvailable);
+                    await this.sendStatusUpdate(status, isNowAvailable, hasStatusChanged);
                 }
                 
                 this.lastStatus = status;
@@ -141,7 +146,7 @@ class FFXIVServerMonitor {
     async sendStartupMessage() {
         if (!this.channel) return;
 
-        const notificationMode = this.devMode ? 'All status changes (DEV MODE)' : 'Only when server becomes available';
+        const notificationMode = this.devMode ? 'Every check regardless of status (DEV MODE)' : 'Only when server becomes available';
         const embed = new EmbedBuilder()
             .setTitle(`🤖 FFXIV Server Monitor Started ${this.devMode ? '(DEV MODE)' : ''}`)
             .setDescription('Bot is now monitoring Behemoth server status')
@@ -170,13 +175,23 @@ class FFXIVServerMonitor {
         }
     }
 
-    async sendStatusUpdate(status, isAvailable) {
+    async sendStatusUpdate(status, isAvailable, hasStatusChanged = true) {
         if (!this.channel) return;
 
         const color = isAvailable ? 0x00ff00 : 0xff0000; // Green if available, red if not
-        const title = isAvailable 
-            ? '✅ Behemoth Server - Character Creation Available!' 
-            : '❌ Behemoth Server - Character Creation Unavailable';
+        
+        let title;
+        if (this.devMode && !hasStatusChanged) {
+            // Dev mode periodic notification
+            title = isAvailable 
+                ? '🔄 Behemoth Server - Still Available (Periodic Check)' 
+                : '🔄 Behemoth Server - Still Unavailable (Periodic Check)';
+        } else {
+            // Status change notification (or production mode)
+            title = isAvailable 
+                ? '✅ Behemoth Server - Character Creation Available!' 
+                : '❌ Behemoth Server - Character Creation Unavailable';
+        }
         
         const embed = new EmbedBuilder()
             .setTitle(title)
