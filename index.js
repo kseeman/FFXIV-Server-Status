@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const axios = require('axios');
 const cheerio = require('cheerio');
 require('dotenv').config();
@@ -13,14 +13,24 @@ class FFXIVServerMonitor {
         this.checkInterval = (process.env.CHECK_INTERVAL || 5) * 60 * 1000; // Convert minutes to milliseconds
         this.lastStatus = null;
         this.channel = null;
+        this.lastCheckTime = null;
         
         this.setupEventHandlers();
+        this.setupSlashCommands();
     }
 
     setupEventHandlers() {
         this.client.once('ready', () => {
             console.log(`Bot logged in as ${this.client.user.tag}!`);
             this.initializeMonitoring();
+        });
+
+        this.client.on('interactionCreate', async interaction => {
+            if (!interaction.isChatInputCommand()) return;
+
+            if (interaction.commandName === 'healthcheck') {
+                await this.handleHealthCheck(interaction);
+            }
         });
 
         this.client.on('error', console.error);
@@ -48,10 +58,19 @@ class FFXIVServerMonitor {
         try {
             console.log('Checking Behemoth server status...');
             const status = await this.fetchServerStatus();
+            this.lastCheckTime = new Date();
             
             if (status && status !== this.lastStatus) {
-                await this.sendStatusUpdate(status);
+                // Only send message if server becomes available (Standard or Preferred)
+                const isNowAvailable = status === 'Standard' || status === 'Preferred' || status === 'Preferred+';
+                const wasAvailable = this.lastStatus === 'Standard' || this.lastStatus === 'Preferred' || this.lastStatus === 'Preferred+';
+                
+                if (isNowAvailable && !wasAvailable) {
+                    await this.sendStatusUpdate(status);
+                }
+                
                 this.lastStatus = status;
+                console.log(`Server status: ${status} (${isNowAvailable ? 'Available' : 'Unavailable'})`);
             }
         } catch (error) {
             console.error('Error checking server status:', error);
@@ -107,47 +126,85 @@ class FFXIVServerMonitor {
     async sendStatusUpdate(status) {
         if (!this.channel) return;
 
-        const isAvailable = status === 'Standard' || status === 'Preferred' || status === 'Preferred+';
-        const color = isAvailable ? 0x00ff00 : 0xff0000; // Green if available, red if not
-        const title = isAvailable ? '✅ Behemoth Server - Character Creation Available!' : '❌ Behemoth Server - Character Creation Unavailable';
-        
         const embed = new EmbedBuilder()
-            .setTitle(title)
+            .setTitle('✅ Behemoth Server - Character Creation Available!')
             .setDescription(`Server Status: **${status}**`)
-            .setColor(color)
+            .setColor(0x00ff00)
             .setTimestamp()
-            .setFooter({ text: 'FFXIV Server Monitor' });
-
-        if (isAvailable) {
-            embed.addFields([
+            .setFooter({ text: 'FFXIV Server Monitor' })
+            .addFields([
                 { 
                     name: '🎉 Good News!', 
                     value: 'You can now create new characters on Behemoth server!', 
                     inline: false 
                 }
             ]);
-        } else {
-            embed.addFields([
-                { 
-                    name: 'Status', 
-                    value: 'Character creation is currently unavailable. The bot will notify when it becomes available.', 
-                    inline: false 
-                }
-            ]);
-        }
 
         try {
             await this.channel.send({ embeds: [embed] });
-            console.log(`Status update sent: ${status}`);
+            console.log(`Availability notification sent: ${status}`);
         } catch (error) {
             console.error('Error sending message:', error);
         }
     }
 
+    async setupSlashCommands() {
+        const commands = [
+            new SlashCommandBuilder()
+                .setName('healthcheck')
+                .setDescription('Check if the FFXIV server monitor bot is running and show current status')
+        ];
+
+        const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+
+        try {
+            console.log('Started refreshing application (/) commands.');
+
+            // For global commands (available in all servers)
+            await rest.put(
+                Routes.applicationCommands(process.env.CLIENT_ID),
+                { body: commands }
+            );
+
+            console.log('Successfully reloaded application (/) commands.');
+        } catch (error) {
+            console.error('Error setting up slash commands:', error);
+        }
+    }
+
+    async handleHealthCheck(interaction) {
+        try {
+            const status = this.lastStatus || 'Unknown';
+            const isAvailable = status === 'Standard' || status === 'Preferred' || status === 'Preferred+';
+            const lastCheck = this.lastCheckTime ? this.lastCheckTime.toLocaleString() : 'Never';
+            const uptime = process.uptime();
+            const uptimeStr = `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`;
+
+            const embed = new EmbedBuilder()
+                .setTitle('🤖 FFXIV Server Monitor - Health Check')
+                .setColor(0x0099ff)
+                .setTimestamp()
+                .addFields([
+                    { name: '✅ Bot Status', value: 'Online and running', inline: true },
+                    { name: '🎮 Behemoth Server', value: `${status} ${isAvailable ? '(Available)' : '(Unavailable)'}`, inline: true },
+                    { name: '⏰ Last Check', value: lastCheck, inline: true },
+                    { name: '📈 Uptime', value: uptimeStr, inline: true },
+                    { name: '🔄 Check Interval', value: `${this.checkInterval / (60 * 1000)} minutes`, inline: true },
+                    { name: '📢 Channel', value: `<#${this.channelId}>`, inline: true }
+                ])
+                .setFooter({ text: 'Bot only sends notifications when server becomes available' });
+
+            await interaction.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Error in health check:', error);
+            await interaction.reply({ content: 'Error occurred while checking bot health.', ephemeral: true });
+        }
+    }
+
     start() {
-        if (!process.env.DISCORD_TOKEN || !process.env.CHANNEL_ID) {
+        if (!process.env.DISCORD_TOKEN || !process.env.CHANNEL_ID || !process.env.CLIENT_ID) {
             console.error('Missing required environment variables. Please check your .env file.');
-            console.error('Required: DISCORD_TOKEN, CHANNEL_ID');
+            console.error('Required: DISCORD_TOKEN, CHANNEL_ID, CLIENT_ID');
             process.exit(1);
         }
 
